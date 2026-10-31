@@ -7,7 +7,7 @@ Copy each field into the DoraHacks form.
 | Project name | OnTheLine |
 | Tagline | Put USDC on the line. Money with a deadline, on Arc. |
 | Arc Studio project URL | https://studio.arc.io/app/dac017cc-f256-4b20-b001-2c56eb4b8286 |
-| Live app | __LIVE_URL__ |
+| Live app | https://dakshhhhh-ops.github.io/ontheline/ |
 | Contract (Arc mainnet) | __CONTRACT__ — https://explorer.arc.io/address/__CONTRACT__ |
 | Example tx (USDC moved) | __TX__ — https://explorer.arc.io/tx/__TX__ |
 | Repo | https://github.com/Dakshhhhh-ops/ontheline |
