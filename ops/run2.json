@@ -1,0 +1,242 @@
+{
+  "status": "needs_input",
+  "appId": "dac017cc-f256-4b20-b001-2c56eb4b8286",
+  "threadId": "8933be68-5ca5-4b5d-88b9-f50f800c11d0",
+  "sandboxId": "ijomvory9qirent4bmjug",
+  "finalText": "Clean. Production build with the sub-path base.",
+  "todos": [
+    {
+      "id": "todo:testnet smoke script + wallets:0",
+      "text": "Testnet smoke script + wallets",
+      "status": "in_progress"
+    },
+    {
+      "id": "todo:run 3 pledge flows on arc testnet:0",
+      "text": "Run 3 pledge flows on Arc Testnet",
+      "status": "pending"
+    },
+    {
+      "id": "todo:hashrouter, vite_base, share links:0",
+      "text": "HashRouter, VITE_BASE, share links",
+      "status": "pending"
+    },
+    {
+      "id": "todo:mainnet default, badge, proof footer:0",
+      "text": "Mainnet default, badge, Proof footer",
+      "status": "pending"
+    },
+    {
+      "id": "todo:readme mainnet section + env vars:0",
+      "text": "README mainnet section + env vars",
+      "status": "pending"
+    },
+    {
+      "id": "todo:lint, typecheck, production build:0",
+      "text": "Lint, typecheck, production build",
+      "status": "pending"
+    }
+  ],
+  "filesChanged": [
+    "scripts/smoke-testnet.ts",
+    "src/App.tsx",
+    "src/components/Layout.tsx",
+    "src/components/Parts.tsx",
+    "src/components/Proof.tsx",
+    "src/components/ShareCard.tsx",
+    "src/config.ts",
+    "src/lib/txLog.ts",
+    "src/vite-env.d.ts"
+  ],
+  "fileDiffs": [
+    {
+      "path": "scripts/smoke-testnet.ts",
+      "action": "write",
+      "addedLines": 240,
+      "removedLines": 0,
+      "isFragment": false,
+      "truncated": true,
+      "hunk": "+/**\n+ * End-to-end smoke test for the deployed OnTheLine contract on Arc Testnet.\n+ *\n+ *   bun run smoke:testnet address   # create throwaway wallets, print the staker address to fund\n+ *   bun run smoke:testnet run       # run the three pledge flows with real transactions\n+ *\n+ * Wallets are throwaway TESTNET keys stored in .smoke-wallets.json (gitignored). The script\n+ * never prints a private key. The contract address and deploy block come from .env.\n+ */\n+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'\n+import {\n+  createPublicClient,\n+  createWalletClient,\n+  defineChain,\n+  erc20Abi,\n+  http,\n+  parseEventLogs,\n+  type Address,\n+  type Hex,\n+} from 'viem'\n+import { generatePrivateKey, privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts'\n+import { onTheLineAbi } from '../src/abi/onTheLine'\n+import { scanPledgeTxs } from '../src/lib/txLog'\n+import { buildTxExplorerUrl, getUsdc, requireChain } from '../src/onchain-facts'\n+\n+const CHAIN_ID = 5042002\n+const WALLET_FILE = '.smoke-wallets.json'\n+const ROLES = ['staker', 'referee', 'recipient', 'settler'] as const\n+type Role = (typeof ROLES)[number]\n+\n+const AMOUNT = 50_000n // 0.05 USDC per pledge\n+const GAS_TOPUP = 1_000_000n // 1 USDC of gas money for referee and settler\n+\n+const fact = requireChain(CHAIN_ID)\n+const usdcFact = getUsdc(CHAIN_ID)\n+if (!usdcFact) throw new Error('USDC is not registered for Arc Testnet')\n+const USDC = usdcFact.address as Address\n+const OTL = process.env.VITE_ONTHELINE_ADDRESS_TESTNET as Address | undefined\n+if (!OTL) throw new Error('VITE_ONTHELINE_ADDRESS_TESTNET is not set in .env')\n+const DEPLOY_BLOCK = BigInt(process.env.VITE_ONTHELINE_DEPLOY_BLOCK_TESTNET ?? '0')\n+\n+const chain = defineChain({\n+  id: CHAIN_ID,\n+  name: fact.name,\n+  nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: fact.nativeCurrency.decimals },\n+  rpcUrls: { default: { http: fact.rpcUrls } },\n+})\n+const pub = createPublicClient({ chain, transport: http() })\n+\n+function loadWallets(): Record<Role, PrivateKeyAccount> {\n+  let raw: Partial<Record<Role, Hex>> = {}\n+  if (existsSync(WALLET_FILE)) raw = JSON.parse(readFileSync(WALLET_FILE, 'utf8')) as Partial<Record<Role, Hex>>\n+  let changed = false\n+  for (const r of ROLES) {\n+    if (!raw[r]) {\n+      raw[r] = generatePrivateKey()\n+      changed = true\n+    }\n+  }\n+  if (changed) writeFileSync(WALLET_FILE, JSON.stringify(raw, null, 2), { mode: 0o600 })\n+  return Object.fromEntries(ROLES.map((r) => [r, privateKeyToAccount(raw[r] as Hex)])) as Record<Role, PrivateKeyAccount>\n+}\n+\n+const usdcBalance = (who: Address) => pub.readContract({ address: USDC, abi: erc20Abi, functionName: 'balanceOf', args: [who] })\n+const fmt = (raw: bigint) => `${raw / 1_000_000n}.${(raw % 1_000_000n).toString().padStart(6, '0')}`\n+\n+interface TxRecord {\n+  flow: string\n+  step: string\n+  by: Role\n+  hash: Hex\n+  explorer: string\n+}\n+const txs: TxRecord[] = []\n+\n+async function send(\n+  flow: string,\n+  step: string,\n+  by: Role,\n+  account: PrivateKeyAccount,\n+  call: { address: Address; abi: typeof onTheLineAbi | typeof erc20Abi; functionName: string; args: readonly unknown[] },\n+) {\n+  const wallet = createWalletClient({ account, chain, transport: http() })\n+  const hash = await wallet.writeContract(call as never)\n+  const receipt = await pub.waitForTransactionReceipt({ hash })\n+  if (receipt.status !== 'success') throw new Error(`${flow}/${step} reverted: ${hash}`)\n+  txs.push({ flow, step, by, hash, explorer: buildTxExplorerUrl(CHAIN_ID, hash) })\n+  console.log(`  ${flow} ${step.padEnd(14)} ${hash}`)\n+  return receipt\n+}\n+\n+const otlCall = (functionName: string, args: readonly unknown[]) => ({ address: OTL, abi: onTheLineAbi, functionName, args })\n+\n+async function chainNow(): Promise<number> {\n+  return Number((await pub.getBlock()).timestamp)\n+}\n+\n+async function waitUntilChainTime(ts: number) {\n+  while ((await chainNow()) <= ts) await new Promise((r) => setTimeout(r, 2000))\n+}\n+\n+async function expectRevert(label: string, fn: () => Promise<unknown>, errorName: string) {\n+  try {\n+    await fn()\n+  } catch (e) {\n+    const text = String((e as { message?: string }).message ?? e)\n+    if (text.includes(errorName)) {\n+      console.log(`  check ok: ${label} reverts with ${errorName}`)\n+      return\n+    }\n+    throw new Error(`${label}: expected ${errorName}, got: ${text.slice(0, 300)}`)\n+  }\n+  throw new Error(`${label}: expected revert ${errorName} but call succeeded`)\n+}\n+\n+async function create(flow: string, w: Record<Role, PrivateKeyAccount>, goal: string, deadline: number, review: number) {\n+  const receipt = await send(flow, 'create', 'staker', w.staker, otlCall('create', [goal, w.referee.address, w.recipient.address, AMOUNT, BigInt(deadline), BigInt(review)]))\n+  const [ev] = parseEventLogs({ abi: onTheLineAbi, logs: receipt.logs, eventName: 'PledgeCreated' })\n+  if (!ev) throw new Error('PledgeCreated not found')\n+  return ev.args.id\n+}\n+\n+async function status(id: bigint) {\n+  const p = await pub.readContract({ address: OTL, abi: onTheLineAbi, functionName: 'getPledge', args: [id] })\n+  return Number(p.status)\n+}\n+\n+function usdcTransfers(logs: Parameters<typeof parseEventLogs>[0]['logs']) {\n+  return parseEventLogs({ abi: erc20Abi, logs, eventName: 'Transfer' })\n+}\n+\n+async function main() {\n+  const cmd = process.argv[2] ?? 'run'\n+  const w = loadWallets()\n+\n+  if (cmd === 'address') {\n+    console.log(`staker (fund this with testnet USDC): ${w.staker.address}`)\n+    console.log(`staker USDC balance: ${fmt(await usdcBalance(w.staker.address))}`)\n+    return\n+  }\n+\n+  const need = AMOUNT * 3n + GAS_TOPUP * 2n + 1_000_000n\n+  const stakerBal = await usdcBalance(w.staker.address)\n+  if (stakerBal < need) throw new Error(`Staker ${w.staker.address} holds ${fmt(stakerBal)} USDC, needs about ${fmt(need)}. Fund it first.`)\n+\n+  const balancesOf = async () =>\n+    Object.fromEntries(\n+      await Promise.all([...ROLES.map(async (r) => [r, await usdcBalance(w[r].address)] as const), usdcBalance(OTL).then((b) => ['contract', b] as const)]),\n+    ) as Record<Role | 'contract', bigint>\n+\n+  console.log(`Contract ${OTL} on ${fact.name}`)\n+  const before = await balancesOf()\n+  const statsBefore = await Promise.all(['totalLocked', 'totalKept', 'totalForfeited'].map((fn) => pub.readContract({ address: OTL, abi: onTheLineAbi, functionName: fn as 'totalLocked' })))\n+\n+  console.log('Funding gas wallets')\n+  for (const r of ['referee', 'settler'] as const) {\n+    if ((await usdcBalance(w[r].address)) < GAS_TOPUP / 2n) {\n+      await send('setup', `fund ${r}`, 'staker', w.staker, { address: USDC, abi: erc20Abi, functionName: 'transfer', args: [w[r].address, GAS_TOPUP] })\n+    }\n+  }\n+  await send('setup', 'approve', 'staker', w.staker, { address: USDC, abi: erc20Abi, functionName: 'approve', args: [OTL, AMOUNT * 3n] })\n+\n+  const ids: Record<string, bigint> = {}\n+  const result: Record<string, unknown> = {}\n+\n+  // (a) create -> referee confirm: staker refunded\n+  console.log('Flow A: create -> confirm')\n+  ids.a = await create('A', w, 'Smoke A: ship the PR', (await chainNow()) + 300, 3600)\n+  const stakerBeforeA = await usdcBalance(w.staker.address)\n+  void stakerBeforeA\n+  const confirmReceipt = await send('A', 'confirm', 'referee', w.referee, otlCall('confirm', [ids.a]))\n+  const refund = usdcTransfers(confirmReceipt.logs).find((l) => l.args.to.toLowerCase() === w.staker.address.toLowerCase() && l.args.from.toLowerCase() === OTL.toLowerCase())\n+  if (!refund || refund.args.value !== AMOUNT) throw new Error('A: refund Transfer to staker not found or wrong amount')\n+  if ((await status(ids.a)) !== 1) throw new Error('A: status should be Kept')\n+  result.A = { id: ids.a.toString(), status: 'Kept', refundedToStaker: fmt(refund.args.value) }\n+\n+  // (b) create -> referee fail: recipient paid\n+  console.log('Flow B: create -> fail')\n+  ids.b = await create('B', w, 'Smoke B: run 5km', (await chainNow()) + 300, 3600)\n+  const recipientBeforeB = await usdcBalance(w.recipient.address)\n+  await send('B', 'fail', 'referee', w.referee, otlCall('fail', [ids.b]))\n+  const recipientAfterB = await usdcBalance(w.recipient.address)\n+  if (recipientAfterB - recipientBeforeB !== AMOUNT) throw new Error('B: recipient did not receive exactly the pledged amount')\n+  if ((await status(ids.b)) !== 2) throw new Error('B: status should be Forfeited')\n+  result.B = { id: ids.b.toString(), status: 'Forfeited', paidToRecipient: fmt(recipientAfterB - recipientBeforeB) }\n+\n+  // (c) short deadline + review window -> settleExpired by a third party\n+  console.log('Flow C: create -> wait -> settleExpired by a third party')\n+  const t0 = await chainNow()\n+  const deadlineC = t0 + 40\n+  const reviewC = 20\n+  ids.c = await create('C', w, 'Smoke C: forfeit by silence', deadlineC, reviewC)\n+  await expectRevert('settleExpired before reviewEnd', () => pub.simulateContract({ ...otlCall('settleExpired', [ids.c]), account: w.settler.address } as never), 'NotExpired')\n+  console.log(`  waiting for chain time to pass ${deadlineC + reviewC}`)\n+  await waitUntilChainTime(deadlineC + reviewC)\n+  await expectRevert('confirm after reviewEnd', () => pub.simulateContract({ ...otlCall('confirm', [ids.c]), account: w.referee.address } as never), 'ReviewEnded')\n+  const recipientBeforeC = await usdcBalance(w.recipient.address)\n+  await send('C', 'settleExpired', 'settler', w.settler, otlCall('settleExpired', [ids.c]))\n+  const recipientAfterC = await usdcBalance(w.recipient.address)\n+  if (recipientAfterC - recipientBeforeC !== AMOUNT) throw new Error('C: recipient did not receive exactly the pledged amount')"
+    },
+    {
+      "path": "src/App.tsx",
+      "action": "edit",
+      "addedLines": 1,
+      "removedLines": 1,
+      "isFragment": true,
+      "truncated": false,
+      "hunk": "-import { BrowserRouter, Route, Routes } from 'react-router-dom'\n+import { HashRouter, Route, Routes } from 'react-router-dom'"
+    },
+    {
+      "path": "src/components/Layout.tsx",
+      "action": "edit",
+      "addedLines": 25,
+      "removedLines": 9,
+      "isFragment": true,
+      "truncated": false,
+      "hunk": "+function LiveBadge() {\n+  const { chainId, address } = useChainState()\n+  if (chainId !== ARC_MAINNET_ID || !address) return null\n+  return (\n+    <span className=\"inline-flex items-center gap-1.5 rounded-full border border-success/40 bg-success/10 px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.06em] text-success\">\n+      <span className=\"h-1.5 w-1.5 animate-pulse rounded-full bg-success\" aria-hidden />\n+      Live on Arc Mainnet\n+    </span>\n+  )\n+}\n+\n function Logo() {\n   return (\n-    <Link to=\"/\" className=\"flex items-center gap-2.5\" aria-label=\"OnTheLine home\">\n-      <span className=\"tape block h-6 w-6 rounded-md border border-accent\" aria-hidden />\n-      <span className=\"display text-xl font-bold\">\n-        OnThe<span className=\"text-accent\">Line</span>\n-      </span>\n-    </Link>\n+    <div className=\"flex items-center gap-3\">\n+      <Link to=\"/\" className=\"flex items-center gap-2.5\" aria-label=\"OnTheLine home\">\n+        <span className=\"tape block h-6 w-6 rounded-md border border-accent\" aria-hidden />\n+        <span className=\"display text-xl font-bold\">\n+          OnThe<span className=\"text-accent\">Line</span>\n+        </span>\n+      </Link>\n+      <LiveBadge />\n+    </div>\n   )\n }\n         <Outlet />\n-      </main>\n+      </main>\n+      <Proof />\n-import { ARC_MAINNET_ID, ARC_TESTNET_ID } from '@/config'\n+import { ARC_MAINNET_ID, ARC_TESTNET_ID } from '@/config'\n+import { Proof } from '@/components/Proof'\n-px-4 pb-28 pt-8 sm:pt-12\">\n+px-4 pb-16 pt-8 sm:pt-12\">"
+    },
+    {
+      "path": "src/components/Parts.tsx",
+      "action": "edit",
+      "addedLines": 1,
+      "removedLines": 2,
+      "isFragment": true,
+      "truncated": false,
+      "hunk": "-  const search = deployment.net === 'mainnet' ? '?net=mainnet' : ''\n   return (\n     <Link\n-      to={`/p/${p.id}${search}`}\n+      to={`/p/${p.id}?net=${deployment.net}`}"
+    },
+    {
+      "path": "src/components/Proof.tsx",
+      "action": "edit",
+      "addedLines": 52,
+      "removedLines": 1,
+      "isFragment": true,
+      "truncated": false,
+      "hunk": "+import { ExternalLink, ShieldCheck } from 'lucide-react'\n+import { useChainState } from '@/context/ChainContext'\n+import { buildAddressExplorerUrl, getUsdc } from '@/onchain-facts'\n+import { Label } from '@/components/ui'\n+\n+function ProofLink({ label, addr, chainId }: { label: string; addr: string; chainId: number }) {\n+  return (\n+    <div className=\"space-y-1\">\n+      <Label>{label}</Label>\n+      <a\n+        href={buildAddressExplorerUrl(chainId, addr)}\n+        target=\"_blank\"\n+        rel=\"noopener noreferrer\"\n+        className=\"mono inline-flex items-center gap-1.5 break-all text-sm text-ink underline-offset-4 hover:underline\"\n+      >\n+        {addr}\n+        <ExternalLink className=\"h-3.5 w-3.5 shrink-0 text-subtle\" aria-hidden />\n+      </a>\n+    </div>\n+  )\n+}\n+\n+/** Footer section linking the contract on the explorer of the selected network. */\n+export function Proof() {\n+  const { chainId, address, deployment } = useChainState()\n+  const usdc = getUsdc(chainId)\n+\n+  return (\n+    <section aria-labelledby=\"proof-heading\" className=\"border-t border-line\">\n+      <div className=\"mx-auto max-w-5xl space-y-5 px-4 py-10\">\n+        <div className=\"flex items-center gap-2\">\n+          <ShieldCheck className=\"h-5 w-5 text-accent\" aria-hidden />\n+          <h2 id=\"proof-heading\" className=\"display text-2xl font-bold\">\n+            Proof\n+          </h2>\n+        </div>\n+        <p className=\"max-w-2xl text-pretty text-sm text-muted\">\n+          Your USDC is held by one public contract with no owner, no admin and no fees. Read it yourself on the {deployment.label} explorer.\n+        </p>\n+        {address ? (\n+          <div className=\"grid gap-5 sm:grid-cols-2\">\n+            <ProofLink label={`OnTheLine on ${deployment.label}`} addr={address} chainId={chainId} />\n+            {usdc && <ProofLink label=\"USDC token it uses\" addr={usdc.address} chainId={chainId} />}\n+          </div>\n+        ) : (\n+          <p className=\"text-sm text-muted\">OnTheLine is not deployed on {deployment.label} yet.</p>\n+        )}\n+      </div>\n+    </section>\n+  )\n+}\n-px-4 py-10\">\n+px-4 pb-28 pt-10\">"
+    },
+    {
+      "path": "src/components/ShareCard.tsx",
+      "action": "edit",
+      "addedLines": 4,
+      "removedLines": 4,
+      "isFragment": true,
+      "truncated": false,
+      "hunk": "-    const search = deployment.net === 'mainnet' ? '?net=mainnet' : ''\n-    void buildShareLink(`/p/${id}${search}`)\n+    // Hash route, so the link works on static hosts (GitHub Pages) without server rewrites.\n+    void buildShareLink('/')\n-        if (!cancelled) setLink(l)\n+        if (!cancelled) setLink(`${l}#/p/${id}?net=${deployment.net}`)\n-          to={`/p/${id}${deployment.net === 'mainnet' ? '?net=mainnet' : ''}`}\n+          to={`/p/${id}?net=${deployment.net}`}"
+    },
+    {
+      "path": "src/config.ts",
+      "action": "edit",
+      "addedLines": 2,
+      "removedLines": 1,
+      "isFragment": true,
+      "truncated": false,
+      "hunk": "-export const DEFAULT_CHAIN_ID: SupportedChainId = ARC_TESTNET_ID\n+/** Arc Mainnet is the default as soon as a mainnet address is configured; users can still toggle to testnet. */\n+export const DEFAULT_CHAIN_ID: SupportedChainId = DEPLOYMENTS[ARC_MAINNET_ID].address ? ARC_MAINNET_ID : ARC_TESTNET_ID"
+    },
+    {
+      "path": "src/lib/txLog.ts",
+      "action": "edit",
+      "addedLines": 2,
+      "removedLines": 0,
+      "isFragment": true,
+      "truncated": false,
+      "hunk": "   const head = await client.getBlockNumber()\n+  // Without a known deploy block, look back a bounded distance instead of crawling from genesis.\n+  const floor = startBlock > 0n ? startBlock : head > MAX_LOOKBACK ? head - MAX_LOOKBACK : 0n\n   const idTopic"
+    },
+    {
+      "path": "src/vite-env.d.ts",
+      "action": "write",
+      "addedLines": 13,
+      "removedLines": 0,
+      "isFragment": false,
+      "truncated": false,
+      "hunk": "+/// <reference types=\"vite/client\" />\n+\n+interface ImportMetaEnv {\n+  readonly VITE_BASE?: string\n+  readonly VITE_ONTHELINE_ADDRESS_TESTNET?: string\n+  readonly VITE_ONTHELINE_DEPLOY_BLOCK_TESTNET?: string\n+  readonly VITE_ONTHELINE_ADDRESS_MAINNET?: string\n+  readonly VITE_ONTHELINE_DEPLOY_BLOCK_MAINNET?: string\n+}\n+\n+interface ImportMeta {\n+  readonly env: ImportMetaEnv\n+}"
+    }
+  ],
+  "contextFiles": [],
+  "workspaceFiles": [],
+  "deployments": [
+    {
+      "contract": "OnTheLine",
+      "address": "0xbca81577f27684a54fb3f61cf51711e0acb94ea4",
+      "network": "Arc Testnet",
+      "explorerUrl": "https://explorer.testnet.arc.io/address/0xbca81577f27684a54fb3f61cf51711e0acb94ea4",
+      "txHash": "0x125862f3fb703291b371ca92bf487c60e05d8ed322a76299435f9f77e3781cc5",
+      "deployedAt": "2026-10-31T22:06:16.074Z"
+    }
+  ],
+  "artifacts": {
+    "contractSources": [
+      "contracts/OnTheLine.sol",
+      "contracts/script/Create2Factory.sol",
+      "contracts/script/DeployCreate2.s.sol",
+      "contracts/test/OnTheLine.Base.t.sol",
+      "contracts/test/OnTheLine.Create.t.sol",
+      "contracts/test/OnTheLine.Invariant.t.sol",
+      "contracts/test/OnTheLine.Views.t.sol",
+      "contracts/test/OnTheLine.t.sol",
+      "contracts/test/mocks/Mocks.sol"
+    ],
+    "abis": [
+      "contracts/out/Base.sol/CommonBase.json",
+      "contracts/out/Base.sol/ScriptBase.json",
+      "contracts/out/Base.sol/TestBase.json",
+      "contracts/out/Context.sol/Context.json",
+      "contracts/out/Create2.sol/Create2.json",
+      "contracts/out/Create2Factory.sol/Create2Factory.json",
+      "contracts/out/DeployCreate2.s.sol/DeployCreate2.json",
+      "contracts/out/ERC20.sol/ERC20.json",
+      "contracts/out/Errors.sol/Errors.json",
+      "contracts/out/IERC1363.sol/IERC1363.json",
+      "contracts/out/IERC165.sol/IERC165.json",
+      "contracts/out/IERC20.sol/IERC20.json",
+      "contracts/out/IERC20Metadata.sol/IERC20Metadata.json",
+      "contracts/out/IMulticall3.sol/IMulticall3.json",
+      "contracts/out/LowLevelCall.sol/LowLevelCall.json",
+      "contracts/out/Mocks.sol/FeeOnTransferToken.json",
+      "contracts/out/Mocks.sol/MockUSDC.json",
+      "contracts/out/OnTheLine.Base.t.sol/OnTheLineTestBase.json",
+      "contracts/out/OnTheLine.Create.t.sol/OnTheLineCreateTest.json",
+      "contracts/out/OnTheLine.Invariant.t.sol/OnTheLineHandler.json",
+      "contracts/out/OnTheLine.Invariant.t.sol/OnTheLineInvariantTest.json",
+      "contracts/out/OnTheLine.Views.t.sol/OnTheLineViewsTest.json",
+      "contracts/out/OnTheLine.sol/OnTheLine.json",
+      "contracts/out/OnTheLine.t.sol/OnTheLineTest.json",
+      "contracts/out/ReentrancyGuard.sol/ReentrancyGuard.json",
+      "contracts/out/SafeERC20.sol/SafeERC20.json",
+      "contracts/out/Script.sol/Script.json",
+      "contracts/out/StdAssertions.sol/StdAssertions.json",
+      "contracts/out/StdChains.sol/StdChains.json",
+      "contracts/out/StdCheats.sol/StdCheats.json",
+      "contracts/out/StdCheats.sol/StdCheatsSafe.json",
+      "contracts/out/StdConstants.sol/StdConstants.json",
+      "contracts/out/StdError.sol/stdError.json",
+      "contracts/out/StdInvariant.sol/StdInvariant.json",
+      "contracts/out/StdJson.sol/stdJson.json",
+      "contracts/out/StdMath.sol/stdMath.json",
+      "contracts/out/StdStorage.sol/stdStorage.json",
+      "contracts/out/StdStorage.sol/stdStorageSafe.json",
+      "contracts/out/StdStyle.sol/StdStyle.json",
+      "contracts/out/StdToml.sol/stdToml.json",
+      "contracts/out/StdUtils.sol/StdUtils.json",
+      "contracts/out/StorageSlot.sol/StorageSlot.json",
+      "contracts/out/Test.sol/Test.json",
+      "contracts/out/Vm.sol/Vm.json",
+      "contracts/out/Vm.sol/VmSafe.json",
+      "contracts/out/console.sol/console.json",
+      "contracts/out/draft-IERC6093.sol/IERC1155Errors.json",
+      "contracts/out/draft-IERC6093.sol/IERC20Errors.json",
+      "contracts/out/draft-IERC6093.sol/IERC721Errors.json",
+      "contracts/out/safeconsole.sol/safeconsole.json",
+      "contracts/out/interfaces/IERC165.sol/IERC165.json",
+      "contracts/out/interfaces/IERC20.sol/IERC20.json"
+    ],
+    "metadata": [
+      "contracts/contract-metadata/OnTheLine.json"
+    ]
+  },
+  "webUrl": "https://studio.arc.io/app/dac017cc-f256-4b20-b001-2c56eb4b8286",
+  "questions": {
+    "title": "Create a Standard Developer API Key?",
+    "contextTag": "onchain_planning",
+    "allowSkip": false,
+    "questions": [
+      {
+        "id": "provision_credentials_consent",
+        "prompt": "This will create a Standard Developer API Key under your Developer Console account and write it to your project's .env as `CIRCLE_API_KEY`. This key grants access to all developer products.",
+        "options": [
+          {
+            "id": "developerControlledWalletsApiKey",
+            "label": "Approve"
+          },
+          {
+            "id": "none",
+            "label": "Deny"
+          }
+        ],
+        "allowMultiple": false,
+        "allowFreeform": false
+      }
+    ]
+  },
+  "errorMessage": null,
+  "traceId": "01a19408-6e89-7628-82b9-23dfd588212f",
+  "budget": null
+}

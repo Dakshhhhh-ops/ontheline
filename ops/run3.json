@@ -1,0 +1,128 @@
+{
+  "status": "completed",
+  "appId": "dac017cc-f256-4b20-b001-2c56eb4b8286",
+  "threadId": "8933be68-5ca5-4b5d-88b9-f50f800c11d0",
+  "sandboxId": "ijomvory9qirent4bmjug",
+  "finalText": "No API key was created. Items 2 to 5 are done, but the testnet smoke test has not run, so I have no tx hashes or final balances for you yet.\n\n## Why the smoke test is blocked\nI can't use the deploy wallet as the staker. Its keys aren't available to me. The platform only lets me deploy contracts from it, not sign transfers or contract calls. It is also a shared wallet, not yours. The built-in faucet tool also refused, because it needs a Circle developer-admin role on your account.\n\nWhat I can do is run the script from a wallet whose key I hold. The script generated a throwaway staker, and it tops up the referee and third-party wallets itself, so those two need no separate funding.\n\nTo finish it, send about 3 testnet USDC to the staker. Use \"Get test USDC\" in the sidebar, then send from your wallet:\n\n`0x70f1ea0bb2E62CCFEbFacD15B4eEC19cd4B928Da`\n\nTell me when it lands and I'll run `bun run smoke:testnet run`, which writes `docs/smoke-testnet.json`.\n\n## The smoke script\n`scripts/smoke-testnet.ts` runs the three flows with real transactions, using the staker plus throwaway referee, recipient and third-party wallets:\n- **(a)** create, then referee confirms, and it checks the staker was refunded.\n- **(b)** create, then referee fails, and it checks the recipient received exactly the pledged amount.\n- **(c)** create with a short deadline and review window, then a third party settles. It also checks that settling early, confirming late and settling twice all revert.\n\nIt then runs the same event scan the pledge page uses against the new pledges to confirm every transaction hash is found. That scan is already confirmed to work against the live RPC: pledge 0 returned zero events as expected. I found one frontend bug while testing and fixed it: with no deploy block configured, the scan would have crawled back to genesis, so it now looks back 50,000 blocks instead.\n\n## Other items\n- **Static hosting:** the app now uses hash routes, so `/#/p/3` deep links work without server rewrites. Share links use that format and carry the network (`?net=testnet` or `?net=mainnet`). `VITE_BASE` sets the sub-path, defaults to `/`, and is normalised. I added `public/.nojekyll`.\n- **Mainnet default:** setting `VITE_ONTHELINE_ADDRESS_MAINNET` makes the app open on Arc Mainnet, with a \"Live on Arc Mainnet\" badge in the header. The header toggle still switches to testnet.\n- **Proof:** a footer section on every page links the contract and the USDC token on the selected network's explorer.\n- **README:** it now has static hosting, the Arc Mainnet deployment steps (`forge create` with `0x3600000000000000000000000000000000000000` as the constructor argument) and the full list of env vars the frontend reads. The mainnet warning is kept in the README.\n- **Env var rename:** I renamed `VITE_ONTHELINE_START_BLOCK_*` to `VITE_ONTHELINE_DEPLOY_BLOCK_*` to match your naming, in `.env`, config, README and project notes.\n- **Contract:** `contracts/OnTheLine.sol` is untouched.\n\nLint and typecheck pass. `VITE_BASE=/ontheline/ bun run build` succeeds, and `dist/index.html` references `/ontheline/assets/...`. I also added `bun run build` and `bun run smoke:testnet` scripts to `package.json`.\n\n<button data-quick-action=\"true\" data-type=\"file\" data-path=\"README.md\">Open the README</button>",
+  "todos": [
+    {
+      "id": "todo:testnet smoke script + wallets:0",
+      "text": "Testnet smoke script + wallets",
+      "status": "done"
+    },
+    {
+      "id": "todo:run 3 pledge flows (blocked: staker needs funds):0",
+      "text": "Run 3 pledge flows (blocked: staker needs funds)",
+      "status": "pending"
+    },
+    {
+      "id": "todo:hashrouter, vite_base, share links:0",
+      "text": "HashRouter, VITE_BASE, share links",
+      "status": "done"
+    },
+    {
+      "id": "todo:mainnet default, badge, proof footer:0",
+      "text": "Mainnet default, badge, Proof footer",
+      "status": "done"
+    },
+    {
+      "id": "todo:readme mainnet section + env vars:0",
+      "text": "README mainnet section + env vars",
+      "status": "done"
+    },
+    {
+      "id": "todo:lint, typecheck, production build:0",
+      "text": "Lint, typecheck, production build",
+      "status": "done"
+    }
+  ],
+  "filesChanged": [],
+  "fileDiffs": [],
+  "contextFiles": [],
+  "workspaceFiles": [],
+  "deployments": [
+    {
+      "contract": "OnTheLine",
+      "address": "0xbca81577f27684a54fb3f61cf51711e0acb94ea4",
+      "network": "Arc Testnet",
+      "explorerUrl": "https://explorer.testnet.arc.io/address/0xbca81577f27684a54fb3f61cf51711e0acb94ea4",
+      "txHash": "0x125862f3fb703291b371ca92bf487c60e05d8ed322a76299435f9f77e3781cc5",
+      "deployedAt": "2026-10-31T22:06:16.074Z"
+    }
+  ],
+  "artifacts": {
+    "contractSources": [
+      "contracts/OnTheLine.sol",
+      "contracts/script/Create2Factory.sol",
+      "contracts/script/DeployCreate2.s.sol",
+      "contracts/test/OnTheLine.Base.t.sol",
+      "contracts/test/OnTheLine.Create.t.sol",
+      "contracts/test/OnTheLine.Invariant.t.sol",
+      "contracts/test/OnTheLine.Views.t.sol",
+      "contracts/test/OnTheLine.t.sol",
+      "contracts/test/mocks/Mocks.sol"
+    ],
+    "abis": [
+      "contracts/out/Base.sol/CommonBase.json",
+      "contracts/out/Base.sol/ScriptBase.json",
+      "contracts/out/Base.sol/TestBase.json",
+      "contracts/out/Context.sol/Context.json",
+      "contracts/out/Create2.sol/Create2.json",
+      "contracts/out/Create2Factory.sol/Create2Factory.json",
+      "contracts/out/DeployCreate2.s.sol/DeployCreate2.json",
+      "contracts/out/ERC20.sol/ERC20.json",
+      "contracts/out/Errors.sol/Errors.json",
+      "contracts/out/IERC1363.sol/IERC1363.json",
+      "contracts/out/IERC165.sol/IERC165.json",
+      "contracts/out/IERC20.sol/IERC20.json",
+      "contracts/out/IERC20Metadata.sol/IERC20Metadata.json",
+      "contracts/out/IMulticall3.sol/IMulticall3.json",
+      "contracts/out/LowLevelCall.sol/LowLevelCall.json",
+      "contracts/out/Mocks.sol/FeeOnTransferToken.json",
+      "contracts/out/Mocks.sol/MockUSDC.json",
+      "contracts/out/OnTheLine.Base.t.sol/OnTheLineTestBase.json",
+      "contracts/out/OnTheLine.Create.t.sol/OnTheLineCreateTest.json",
+      "contracts/out/OnTheLine.Invariant.t.sol/OnTheLineHandler.json",
+      "contracts/out/OnTheLine.Invariant.t.sol/OnTheLineInvariantTest.json",
+      "contracts/out/OnTheLine.Views.t.sol/OnTheLineViewsTest.json",
+      "contracts/out/OnTheLine.sol/OnTheLine.json",
+      "contracts/out/OnTheLine.t.sol/OnTheLineTest.json",
+      "contracts/out/ReentrancyGuard.sol/ReentrancyGuard.json",
+      "contracts/out/SafeERC20.sol/SafeERC20.json",
+      "contracts/out/Script.sol/Script.json",
+      "contracts/out/StdAssertions.sol/StdAssertions.json",
+      "contracts/out/StdChains.sol/StdChains.json",
+      "contracts/out/StdCheats.sol/StdCheats.json",
+      "contracts/out/StdCheats.sol/StdCheatsSafe.json",
+      "contracts/out/StdConstants.sol/StdConstants.json",
+      "contracts/out/StdError.sol/stdError.json",
+      "contracts/out/StdInvariant.sol/StdInvariant.json",
+      "contracts/out/StdJson.sol/stdJson.json",
+      "contracts/out/StdMath.sol/stdMath.json",
+      "contracts/out/StdStorage.sol/stdStorage.json",
+      "contracts/out/StdStorage.sol/stdStorageSafe.json",
+      "contracts/out/StdStyle.sol/StdStyle.json",
+      "contracts/out/StdToml.sol/stdToml.json",
+      "contracts/out/StdUtils.sol/StdUtils.json",
+      "contracts/out/StorageSlot.sol/StorageSlot.json",
+      "contracts/out/Test.sol/Test.json",
+      "contracts/out/Vm.sol/Vm.json",
+      "contracts/out/Vm.sol/VmSafe.json",
+      "contracts/out/console.sol/console.json",
+      "contracts/out/draft-IERC6093.sol/IERC1155Errors.json",
+      "contracts/out/draft-IERC6093.sol/IERC20Errors.json",
+      "contracts/out/draft-IERC6093.sol/IERC721Errors.json",
+      "contracts/out/safeconsole.sol/safeconsole.json",
+      "contracts/out/interfaces/IERC165.sol/IERC165.json",
+      "contracts/out/interfaces/IERC20.sol/IERC20.json"
+    ],
+    "metadata": [
+      "contracts/contract-metadata/OnTheLine.json"
+    ]
+  },
+  "webUrl": "https://studio.arc.io/app/dac017cc-f256-4b20-b001-2c56eb4b8286",
+  "questions": null,
+  "errorMessage": null,
+  "traceId": "01a1940c-0246-752f-992d-766180e887e1",
+  "budget": null
+}

@@ -1,0 +1,8 @@
+Great work. Next round, quick preset for contract-adjacent work (do NOT change contracts/OnTheLine.sol; it is final and will be deployed to mainnet byte-for-byte):
+
+1. End-to-end smoke test on Arc Testnet against the deployed contract 0xbca81577f27684a54fb3f61cf51711e0acb94ea4: write a script (contracts/script or scripts/) that, from funded testnet wallets, runs three real pledges: (a) create -> referee confirm (staker refunded), (b) create -> referee fail (recipient paid), (c) create with a short deadline + short review window -> settleExpired by a third party. Run it on testnet and give me the tx hashes and final balances. Fix any frontend bugs you find in the flows along the way.
+2. Static hosting: make the app deployable as a static site under a sub-path on GitHub Pages (https://<user>.github.io/ontheline/). Make vite `base` configurable via env VITE_BASE (default '/'), and switch to HashRouter so deep links like /#/p/3 work without server rewrites. Share links must include the hash route.
+3. Network default: when VITE_ONTHELINE_ADDRESS_MAINNET is set, default to Arc Mainnet (users can still toggle to testnet). Show a small "Live on Arc Mainnet" badge.
+4. Add a "Proof" section in the footer or home page that links the contract on the explorer of the selected network.
+5. README: add an "Arc Mainnet deployment" section (deploy with forge create or an equivalent script using constructor arg 0x3600000000000000000000000000000000000000, set VITE_ONTHELINE_ADDRESS_MAINNET and VITE_ONTHELINE_DEPLOY_BLOCK_MAINNET if you use a deploy block, build with VITE_BASE=/ontheline/). List the env vars the frontend reads.
+Run lint, typecheck, and a production build at the end.

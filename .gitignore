@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.env
+.env.*
+ops/run*.err
+ops/solc-input.json
+app/contracts/out/
+app/contracts/cache/
+app/.arc-studio/
+*.log

@@ -1,0 +1,43 @@
+name: Deploy app to GitHub Pages
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile || bun install
+      - run: bun run build
+        env:
+          VITE_BASE: /ontheline/
+          VITE_ONTHELINE_ADDRESS_TESTNET: "0xbca81577f27684a54fb3f61cf51711e0acb94ea4"
+          VITE_ONTHELINE_DEPLOY_BLOCK_TESTNET: "70077462"
+          VITE_ONTHELINE_ADDRESS_MAINNET: ${{ vars.ONTHELINE_ADDRESS_MAINNET }}
+          VITE_ONTHELINE_DEPLOY_BLOCK_MAINNET: ${{ vars.ONTHELINE_DEPLOY_BLOCK_MAINNET }}
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: app/dist
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
