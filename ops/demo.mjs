@@ -12,7 +12,7 @@ import { arc } from './chain.mjs';
 const USDC = '0x3600000000000000000000000000000000000000';
 const { address: OTL } = JSON.parse(fs.readFileSync('deployment.mainnet.json', 'utf8'));
 const abi = JSON.parse(fs.readFileSync('OnTheLine.abi.json', 'utf8'));
-const amount = parseUnits(process.argv[2] ?? '0.5', 6);
+const amount = parseUnits(process.argv[2] ?? '0.25', 6);
 
 const pub = createPublicClient({ chain: arc, transport: http() });
 const acct = k => privateKeyToAccount(process.env[k + '_PK']);
@@ -39,10 +39,10 @@ async function balances(tag) {
 // Gas for the referee: native USDC transfer (18-decimal native units) from the staker
 const refBal = await bal(referee.address);
 if (refBal < 50000n) {
-  const hash = await w(staker).sendTransaction({ to: referee.address, value: parseEther('0.1') });
+  const hash = await w(staker).sendTransaction({ to: referee.address, value: parseEther('0.02') });
   await pub.waitForTransactionReceipt({ hash });
   console.log('funded referee gas'.padEnd(34), hash);
-  log.push({ step: 'fund referee gas (0.1 USDC)', hash, url: ex(hash) });
+  log.push({ step: 'fund referee gas (0.02 USDC)', hash, url: ex(hash) });
 }
 const before = await balances('before');
 
